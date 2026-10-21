@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111315">
+  <title>현대파워시스템 | 온도상승시험 계산기</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:#111315; color:#f2f4f7; }
+    .app { width:min(100%,680px); min-height:100dvh; margin:auto; display:flex; flex-direction:column; background:#17191c; }
+    header { padding:19px 18px 14px; border-bottom:1px solid #30343a; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    header .overline { color:#a3adb9; font-size:11px; font-weight:650; letter-spacing:.06em; }
+    h1 { font-size:18px; margin:5px 0 0; font-weight:750; }
+    button { font:inherit; cursor:pointer; }
+    .reset { border:1px solid #40464f; color:#d5dce5; background:transparent; border-radius:10px; padding:9px 11px; font-size:12px; white-space:nowrap; }
+    .chat { padding:20px 14px 25px; display:flex; flex-direction:column; gap:15px; flex:1; }
+    .bubble { padding:15px 16px; border-radius:15px; line-height:1.65; font-size:14px; white-space:pre-line; overflow-wrap:anywhere; }
+    .bot { background:#202328; align-self:flex-start; max-width:95%; border-top-left-radius:5px; }
+    .user { background:#213044; align-self:flex-end; max-width:87%; border-top-right-radius:5px; }
+    .result { align-self:stretch; background:#1e2126; border:1px solid #303640; border-radius:16px; padding:18px 16px; }
+    .result h2 { margin:0 0 15px; font-size:14px; font-weight:700; }
+    .formula { background:#15181c; padding:14px 9px; text-align:center; border-radius:9px; margin:10px 0 15px; overflow-x:auto; font-family:Georgia,"Times New Roman",serif; font-size:18px; white-space:nowrap; }
+    .fraction { display:inline-flex; vertical-align:middle; flex-direction:column; align-items:center; line-height:1.32; font-size:.93em; }
+    .fraction .top { border-bottom:1px solid currentColor; padding:0 5px 3px; }
+    .fraction .bottom { padding-top:3px; }
+    .equation-label { color:#a9b1bd; font-size:12px; margin-top:7px; }
+    .value { font-weight:800; font-size:26px; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+    .detail { margin-top:10px; color:#cbd2da; font-size:13px; line-height:1.6; }
+    .pass { color:#37d394; font-size:14px; font-weight:700; margin-top:5px; }
+    .fail { color:#ff8585; font-size:14px; font-weight:700; margin-top:5px; }
+    .note { margin-top:12px; font-size:11px; color:#8894a3; line-height:1.6; }
+    .composer { position:sticky; bottom:0; background:#17191c; padding:12px 14px max(15px,env(safe-area-inset-bottom)); border-top:1px solid #30343a; }
+    .prompt { color:#b8c1cc; font-size:12px; margin-bottom:10px; }
+    .fields { display:grid; gap:9px; }
+    .field label { display:block; color:#cbd3df; font-size:12px; margin:0 0 6px 2px; }
+    .field .input-wrap { display:flex; align-items:center; background:#23272d; border:1px solid #414956; border-radius:11px; }
+    .field input { width:100%; min-width:0; background:transparent; color:#fff; border:0; outline:none; padding:13px; font-size:16px; }
+    .field .unit { padding-right:12px; color:#aab4c0; font-size:14px; }
+    .submit { margin-top:12px; width:100%; border:0; border-radius:11px; background:#3579ea; color:#fff; padding:14px; font-weight:750; }
+    .submit:active { transform:scale(.995); }
+    .error { color:#ff9f9f; font-size:12px; margin:9px 0 0; min-height:0; }
+    .footer { font-size:11px; text-align:center; color:#707c8a; padding:8px 12px 0; }
+    [hidden] { display:none !important; }
+    @media(min-width:700px) { body { padding:20px 0; } .app { border:1px solid #333944; min-height:calc(100dvh - 40px); border-radius:18px; overflow:hidden; } }
+    @media(max-width:360px) { .formula { font-size:15px; } h1 { font-size:16px; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <div class="overline">HYUNDAI POWER SYSTEM</div>
+        <h1>온도상승시험 계산기</h1>
+      </div>
+      <button class="reset" id="reset" type="button">새 시험 시작</button>
+    </header>
+    <section class="chat" id="chat" aria-live="polite" aria-label="시험 계산 대화"></section>
+    <form class="composer" id="form">
+      <div class="prompt" id="prompt"></div>
+      <div class="fields" id="fields"></div>
+      <p class="error" id="error" role="alert" hidden></p>
+      <button class="submit" id="submit" type="submit">계산하기</button>
+      <div class="footer">기준: 온도상승 185°C 이하</div>
+    </form>
+  </main>
+  <script>
+    "use strict";
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("form");
+    const fields = document.getElementById("fields");
+    const prompt = document.getElementById("prompt");
+    const submit = document.getElementById("submit");
+    const error = document.getElementById("error");
+    const K = 234.5;
+    let stage = 0;
+    let amb, ramb, r0;
+    const fmt = (n, digits=2) => n.toFixed(digits);
+    const num = v => Number(String(v).trim());
+    function jump() { requestAnimationFrame(() => { window.scrollTo({top:document.documentElement.scrollHeight,behavior:"smooth"}); }); }
+    function bubble(message, who="bot") {
+      const div = document.createElement("div");
+      div.className = "bubble " + who;
+      div.textContent = message;
+      chat.append(div);
+      jump();
+    }
+    function result(title, equation, value, detail, judgment, passing) {
+      const card = document.createElement("section");
+      card.className = "result";
+      const heading = document.createElement("h2");
+      heading.textContent = title;
+      const formula = document.createElement("div");
+      formula.className = "formula";
+      // equation is composed internally from fixed markup and validated numbers only.
+      formula.innerHTML = equation;
+      const main = document.createElement("div");
+      main.className = "value";
+      main.textContent = value;
+      const next = document.createElement("div");
+      next.className = "detail";
+      next.textContent = detail;
+      card.append(heading,formula,main,next);
+      if (judgment) {
+        const badge = document.createElement("div");
+        badge.className = passing ? "pass" : "fail";
+        badge.textContent = judgment;
+        card.append(badge);
+      }
+      chat.append(card);
+      jump();
+    }
+    function inputField(id, label, placeholder, unit) {
+      return `<div class="field"><label for="${id}">${label}</label><div class="input-wrap"><input id="${id}" name="${id}" inputmode="decimal" type="number" step="any" placeholder="${placeholder}" required autocomplete="off"><span class="unit">${unit}</span></div></div>`;
+    }
+    function setError(text) { error.textContent = text; error.hidden = !text; }
+    function reset() {
+      stage = 0;
+      amb = ramb = r0 = undefined;
+      chat.replaceChildren();
+      setError("");
+      bubble("온도상승시험을 시작합니다.\n시험 전 주위온도(°C)와 전원 인가 전 입력단자 저항값(Ω)을 입력해 주세요.");
+      prompt.textContent = "시험 전 측정값";
+      fields.innerHTML = inputField("amb","주위온도 (θamb)","예: 25","°C") +
+                         inputField("ramb","전원 인가 전 입력단자 저항 (Ramb)","예: 1.50","Ω");
+      submit.textContent = "R₀ 계산하기";
+      form.hidden = false;
+    }
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      setError("");
+      if (stage === 0) {
+        const ambient = num(document.getElementById("amb").value);
+        const initial = num(document.getElementById("ramb").value);
+        if (!Number.isFinite(ambient) || !Number.isFinite(initial) || ambient <= -234.5 || initial <= 0) {
+          setError("주위온도는 -234.5°C보다 커야 하며, 시험 전 저항은 0보다 큰 숫자여야 합니다.");
+          return;
+        }
+        const candidate = K * initial / (K + ambient);
+        if (!Number.isFinite(candidate) || candidate <= 0) {
+          setError("계산 가능한 측정값을 입력해 주세요.");
+          return;
+        }
+        amb = ambient; ramb = initial; r0 = candidate;
+        bubble(`주위온도: ${amb}°C\n시험 전 입력단자 저항: ${ramb}Ω`,"user");
+        result("0°C 기준 권선저항 산출 완료",
+          `R₀ = <span class="fraction"><span class="top">234.5 × ${ramb}</span><span class="bottom">234.5 + ${amb}</span></span>`,
+          `R₀ = ${fmt(r0,4)} Ω`,
+          "부하시험 후 입력단자 저항값(Re)을 입력해 주세요.");
+        stage = 1;
+        prompt.textContent = "부하시험 후 측정값";
+        fields.innerHTML = inputField("re","부하시험 후 입력단자 저항 (Re)","예: 2.10","Ω");
+        submit.textContent = "온도상승 계산하기";
+      } else if (stage === 1) {
+        const re = num(document.getElementById("re").value);
+        if (!Number.isFinite(re) || re <= 0) {
+          setError("부하시험 후 저항은 0보다 큰 숫자로 입력해 주세요.");
+          return;
+        }
+        const rise = (re*K/r0) - (K+amb);
+        if (!Number.isFinite(rise)) {
+          setError("계산 가능한 측정값을 입력해 주세요.");
+          return;
+        }
+        const passing = rise <= 185;
+        bubble(`부하시험 후 입력단자 저항: ${re}Ω`,"user");
+        result("온도상승시험 계산 완료",
+          `Δθ = <span class="fraction"><span class="top">${re} × 234.5</span><span class="bottom">${fmt(r0,4)}</span></span> − (234.5 + ${amb})`,
+          `${fmt(rise,1)}°C`,
+          "계산식: Δθ = (Re × 234.5 ÷ R₀) − (234.5 + θamb)",
+          passing ? "✓ 적합 — 허용 기준 185°C 이하" : "✕ 부적합 — 허용 기준 185°C 초과",
+          passing);
+        const note = document.createElement("div");
+        note.className = "note";
+        note.textContent = "계산은 반올림 전 R₀를 사용했습니다. 표시값은 소수 첫째 자리로 반올림했습니다.";
+        chat.lastElementChild.append(note);
+        stage = 2;
+        form.hidden = true;
+      }
+      jump();
+    });
+    document.getElementById("reset").addEventListener("click", reset);
+    reset();
+  </script>
+</body>
+</html>
